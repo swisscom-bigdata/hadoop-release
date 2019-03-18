@@ -78,4 +78,4 @@ mvn -DskipTests=true clean compile package install
 cd ..
 ```
 
-The Hadoop Auth JAR will then be available under `hadoop-common-project/hadoop-auth/target/hadoop-auth-2.7.3.2.6.3.0-SNAPSHOT-sources.jar`.
+The Hadoop Auth JAR will then be available under `hadoop-common-project/hadoop-auth/target/hadoop-auth-2.7.3.2.6.3.0-SNAPSHOT.jar`.
