@@ -39,9 +39,12 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +78,19 @@ import static org.apache.hadoop.util.PlatformName.IBM_JAVA;
 public class KerberosAuthenticationHandler implements AuthenticationHandler {
   public static final Logger LOG = LoggerFactory.getLogger(
       KerberosAuthenticationHandler.class);
+
+  // Environment variable containing server names for which the specified server
+  // names should be used instead of reverse DNS resolution.
+  // Usage:
+  //   server_name=[a-zA-Z0-9.-_]+
+  //   override_def=<server_name>=<server_name>(,<server_name>)*
+  //   KERBEROS_SERVERNAME_OVERRIDES_ENV_NAME=<override_def>(;<override_def>)*
+  // Example:
+  //   KERBEROS_SERVERNAME_OVERRIDES_ENV_NAME=server1=override_server1,override2_server2;server2=override_server2
+  private static final String KERBEROS_SERVERNAME_OVERRIDES_ENV_NAME =
+          "KERBEROS_SERVERNAME_OVERRIDES";
+
+  private static Map<String, List<String>> KERBEROS_SERVERNAME_OVERRIDES_MAP = null;
 
   /**
    * Kerberos context configuration for the JDK GSS library.
@@ -239,7 +255,7 @@ public class KerberosAuthenticationHandler implements AuthenticationHandler {
       if (!new File(keytab).exists()) {
         throw new ServletException("Keytab does not exist: " + keytab);
       }
-      
+
       // use all SPNEGO principals in the keytab if a principal isn't
       // specifically configured
       final String[] spnegoPrincipals;
@@ -257,7 +273,7 @@ public class KerberosAuthenticationHandler implements AuthenticationHandler {
       if (nameRules != null) {
         KerberosName.setRules(nameRules);
       }
-      
+
       for (String spnegoPrincipal : spnegoPrincipals) {
         LOG.info("Login using keytab {}, for principal {}",
             keytab, spnegoPrincipal);
@@ -269,7 +285,7 @@ public class KerberosAuthenticationHandler implements AuthenticationHandler {
           loginContext.login();
         } catch (LoginException le) {
           LOG.warn("Failed to login as [{}]", spnegoPrincipal, le);
-          throw new AuthenticationException(le);          
+          throw new AuthenticationException(le);
         }
         loginContexts.add(loginContext);
         KerberosName kerbName = new KerberosName(spnegoPrincipal);
@@ -371,6 +387,96 @@ public class KerberosAuthenticationHandler implements AuthenticationHandler {
   }
 
   /**
+   * Returns the list of server name overrides for a given server name. Multiple
+   * overrides are allowed, in which case the logic will try each one of them (in
+   * the order they are defined) until one works (i.e. not authentication failure).
+   * In case none of them works, the exception thrown by the last own is thrown.
+   * In case no server name override is defined of a gven server name, then the
+   * default mechanism is used (reverse DNS resolution).
+   *
+   * @param serverName
+   * @return
+   */
+  protected List<String> getServerNameOverrides(String serverName) {
+      if (KERBEROS_SERVERNAME_OVERRIDES_MAP == null) {
+          initKerberosServerNameOverrides();
+      }
+      final List<String> result = KERBEROS_SERVERNAME_OVERRIDES_MAP.get(serverName);
+      if (result != null) {
+          if (LOG.isDebugEnabled()) {
+              LOG.debug("Kerberos server name override found for " + serverName + ": " + Arrays.toString(result.toArray()));
+          }
+      }
+      else {
+          if (LOG.isDebugEnabled()) {
+              LOG.debug("No Kerberos server name override found for " + serverName);
+          }
+      }
+      return result;
+  }
+
+  /**
+   * Initialized the map of server names overrides. This operations is done
+   * only once the first time that information is needed.
+   */
+  protected synchronized void initKerberosServerNameOverrides() {
+      if (KERBEROS_SERVERNAME_OVERRIDES_MAP != null) {
+          LOG.debug("Kerberos server name already initialized");
+          return;
+      }
+      LOG.debug("Initializing Kerberos server name overrides");
+      KERBEROS_SERVERNAME_OVERRIDES_MAP = new HashMap<String, List<String>>();
+      try {
+          final String overrides = System.getenv(KERBEROS_SERVERNAME_OVERRIDES_ENV_NAME);
+          if (overrides != null && overrides.trim().length() > 0) {
+              LOG.debug("Overrides set in "
+                      + KERBEROS_SERVERNAME_OVERRIDES_ENV_NAME
+                      + " environment variable: " + overrides);
+              final String[] overridesArray = overrides.trim().split(";");
+              for (int i = 0; i < overridesArray.length; i++)  {
+                  final String[] keyVal = overridesArray[i].trim().split("=");
+                  final String key = keyVal[0].trim();
+                  final String[] values = keyVal[1].trim().split(",");
+                  final List<String> valuesList = new ArrayList<String>();
+                  for (int j = 0; j < values.length; j++) {
+                      valuesList.add(values[j].trim());
+                  }
+                  KERBEROS_SERVERNAME_OVERRIDES_MAP.put(key, valuesList);
+                  LOG.debug("Added override: " + key + " --> " + Arrays.toString(valuesList.toArray()));
+              }
+          }
+          else {
+              LOG.debug("No server name override defined in "
+                      + KERBEROS_SERVERNAME_OVERRIDES_ENV_NAME
+                      + " environment variable");
+          }
+      } catch (Exception e) {
+          // Do not throw the exception, just log and continue.
+          LOG.error("Failed to init Kerberos server name overrides", e);
+      }
+  }
+
+  /**
+   * Retrieves the list of server name for a given server name.
+   * The logic is to first check if overrides are defined through the
+   * KERBEROS_SERVERNAME_OVERRIDES environment variable and
+   * use them. If no override is defined, then reverse DNS resolution
+   * is used.
+   *
+   * @param requestServerName
+   * @return
+   */
+  protected List<String> getServerNames(String requestServerName)
+      throws UnknownHostException {
+      List<String> result = getServerNameOverrides(requestServerName);
+      if (result == null || result.isEmpty()) {
+          result = Collections.singletonList(InetAddress.getByName(requestServerName)
+              .getCanonicalHostName());
+      }
+      return result;
+  }
+
+  /**
    * It enforces the the Kerberos SPNEGO authentication sequence returning an
    * {@link AuthenticationToken} only after the Kerberos SPNEGO sequence has
    * completed successfully.
@@ -409,49 +515,72 @@ public class KerberosAuthenticationHandler implements AuthenticationHandler {
           KerberosAuthenticator.NEGOTIATE.length()).trim();
       final Base64 base64 = new Base64(0);
       final byte[] clientToken = base64.decode(authorization);
-      final String serverName = InetAddress.getByName(request.getServerName())
-                                           .getCanonicalHostName();
-      try {
-        token = Subject.doAs(serverSubject,
-            new PrivilegedExceptionAction<AuthenticationToken>() {
-              private Set<String> serverPrincipals =
-                  serverPrincipalMap.get(serverName);
-              @Override
-              public AuthenticationToken run() throws Exception {
-                if (LOG.isTraceEnabled()) {
-                  LOG.trace("SPNEGO with server principals: {} for {}",
-                      serverPrincipals.toString(), serverName);
-                }
-                AuthenticationToken token = null;
-                Exception lastException = null;
-                for (String serverPrincipal : serverPrincipals) {
-                  try {
-                    token = runWithPrincipal(serverPrincipal, clientToken,
-                        base64, response);
-                  } catch (Exception ex) {
-                    lastException = ex;
-                    LOG.trace("Auth {} failed with {}", serverPrincipal, ex);
-                  } finally {
-                      if (token != null) {
-                        LOG.trace("Auth {} successfully", serverPrincipal);
-                        break;
+      final List<String> serverNames = getServerNames(request.getServerName());
+      for (int i = 0; i < serverNames.size(); i++) {
+          final String serverName = serverNames.get(i);
+          try {
+            token = Subject.doAs(serverSubject,
+                new PrivilegedExceptionAction<AuthenticationToken>() {
+                  private Set<String> serverPrincipals =
+                      serverPrincipalMap.get(serverName);
+                  @Override
+                  public AuthenticationToken run() throws Exception {
+                    if (LOG.isTraceEnabled()) {
+                      LOG.trace("SPNEGO with server principals: {} for {}",
+                          serverPrincipals.toString(), serverName);
+                    }
+                    AuthenticationToken token = null;
+                    Exception lastException = null;
+                    for (String serverPrincipal : serverPrincipals) {
+                      try {
+                        token = runWithPrincipal(serverPrincipal, clientToken,
+                            base64, response);
+                      } catch (Exception ex) {
+                        lastException = ex;
+                        LOG.trace("Auth {} failed with {}", serverPrincipal, ex);
+                      } finally {
+                          if (token != null) {
+                            LOG.trace("Auth {} successfully", serverPrincipal);
+                            break;
+                        }
+                      }
+                    }
+                    if (token != null) {
+                      return token;
+                    } else {
+                      throw new AuthenticationException(lastException);
                     }
                   }
-                }
-                if (token != null) {
-                  return token;
+                });
+            // Stop with the first working token.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Stopping after success with server name: " + serverName);
+            }
+            break;
+          } catch (PrivilegedActionException ex) {
+              // Only throw the exception if we tried all server names.
+              if (i == serverNames.size() - 1) {
+                if (ex.getException() instanceof IOException) {
+                  throw (IOException) ex.getException();
                 } else {
-                  throw new AuthenticationException(lastException);
+                  throw new AuthenticationException(ex.getException());
                 }
+              }  else {
+                  if (LOG.isDebugEnabled()) {
+                      LOG.debug("Not throwing PrivilegedActionException for " + serverName, ex);
+                  }
               }
-            });
-      } catch (PrivilegedActionException ex) {
-        if (ex.getException() instanceof IOException) {
-          throw (IOException) ex.getException();
-        } else {
-          throw new AuthenticationException(ex.getException());
+          } catch (Exception e) {
+              // Only throw the exception if we tried all server names.
+              if (i == serverNames.size() - 1) {
+                  throw e;
+              } else {
+                  if (LOG.isDebugEnabled()) {
+                      LOG.debug("Not throwing Exception for " + serverName, e);
+                  }
+              }
+          }
         }
-      }
     }
     return token;
   }
