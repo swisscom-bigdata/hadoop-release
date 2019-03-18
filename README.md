@@ -1,6 +1,8 @@
 # Hadoop auth with server name overrides support
 
-This branch contains a modified version of `hadoop-auth` contained in `HDP 2.6.4.91-3` which allows to specify
+This branch should only be used to build the custom `hadoop-auth` version it contains.
+
+That modified version of `hadoop-auth` (based on the `HDP 2.6.4.91-3` version) allows to specify
 server name overrides (through an environment variable) to retrieve the right Kerberos ticket when authenticating clients.
 This allows to shortcut the normal mechanism (reverse DNS lookup), which can cause problem in complex setups where the client 
 and server do not resolve to the same value, hence making authentication simply not possible.
