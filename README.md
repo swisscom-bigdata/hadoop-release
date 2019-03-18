@@ -57,8 +57,8 @@ Make sure you have the following Maven repositories in your `~/.m2/settings.xml`
 ### Step by step instructions
 ```
 cd /tmp
-mkdir ranger_plugin
-cd ranger_plugin
+mkdir hadoop_auth
+cd hadoop_auth
 
 git clone https://github.com/hortonworks/zookeeper-release.git
 cd zookeeper-release
