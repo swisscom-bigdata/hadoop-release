@@ -31,21 +31,35 @@ brew cask install adoptopenjdk/openjdk/adoptopenjdk8
 brew install maven ant automake
 ```
 
-Make sure you have the following Maven repositories in your `~/.m2/settings.xml`:
+Make sure you have the following Maven configs or equivalent `~/.m2/settings.xml`:
 
 ```xml
-<repository>
-  <snapshots />
-  <id>spring-plugins</id>
-  <name>spring-plugins</name>
-  <url>http://repo.spring.io/plugins-release/</url>
-</repository>
-<repository>
-  <snapshots />
-  <id>hortonworks</id>
-  <name>hortonworks</name>
-  <url>http://repo.hortonworks.com/content/repositories/releases/</url>
-</repository>
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.1.0 http://maven.apache.org/xsd/settings-1.1.0.xsd" xmlns="http://maven.apache.org/SETTINGS/1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <profiles>
+    <profile>
+      <repositories>
+        <repository>
+          <snapshots />
+          <id>hortonworks</id>
+          <name>hortonworks</name>
+          <url>https://repo.hortonworks.com/content/repositories/releases/</url>
+        </repository>
+        <repository>
+          <snapshots />
+          <id>spring-plugins</id>
+          <name>spring-plugins</name>
+          <url>https://repo.spring.io/plugins-release/</url>
+        </repository>
+      </repositories>
+      <id>hwx</id>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>hwx</activeProfile>
+  </activeProfiles>
+</settings>
 ```
 
 ### Step by step instructions
