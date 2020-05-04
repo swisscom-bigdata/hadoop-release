@@ -50,7 +50,13 @@ Make sure you have the following Maven repositories in your `~/.m2/settings.xml`
 
 ### Step by step instructions
 
+**Note:** This cannot be built properly from Swisscom's internal network without
+modifying all configs, so build from a public network.
+
 ```bash
+# -- Environment
+export JAVA_HOME="$(/usr/libexec/java_home -v1.8)"
+
 # -- Temporary build dir
 cd /tmp
 mkdir hadoop265
@@ -87,8 +93,8 @@ The Hadoop common JAR will then be available under
 
 ## Applying the patch
 
-To limit the production changes to a minimum, only the affected class has been
-patched in.
+To limit the production changes to a minimum, only the affected classes have
+been patched in.
 
 The built `hadoop-common-2.7.3.2.6.5.0-292.jar` can be used to extract the
 needed class files:
